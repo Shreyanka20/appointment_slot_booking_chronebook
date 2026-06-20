@@ -685,6 +685,16 @@ async def update_video_settings(req: VideoSettingsReq, user=Depends(get_current_
     return {"ok": True}
 
 
+@api.get("/health/email")
+async def health_email():
+    s = smtp_status()
+    return {
+        "enabled": s["enabled"],
+        "provider": s.get("provider", "smtp"),
+        "from": os.environ.get("EMAIL_FROM") or os.environ.get("SMTP_USER") or None,
+    }
+
+
 # ---------- Admin ----------
 @api.get("/admin/stats")
 async def admin_stats(user=Depends(require_admin)):
@@ -805,7 +815,8 @@ async def startup():
 
     smtp = smtp_status()
     print(
-        f"[STARTUP] SMTP {'enabled' if smtp['enabled'] else 'DISABLED'} "
+        f"[STARTUP] Email {'enabled' if smtp['enabled'] else 'DISABLED'} "
+        f"provider={smtp.get('provider', 'smtp')} "
         f"host={smtp['host'] or '—'} user={smtp['user'] or '—'}",
         flush=True,
     )

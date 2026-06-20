@@ -6,6 +6,8 @@ from email.mime.text import MIMEText
 from email.utils import formataddr
 from datetime import datetime
 
+import httpx
+
 logger = logging.getLogger(__name__)
 
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
@@ -34,29 +36,69 @@ def _smtp_config():
     }
 
 
+def _resend_api_key() -> str:
+    return os.environ.get("RESEND_API_KEY", "").strip()
+
+
+def _from_header() -> str:
+    c = _smtp_config()
+    raw = c["from_addr"]
+    if "<" in raw and ">" in raw:
+        return raw
+    return formataddr(("ChronoBook", raw or c["user"] or "noreply@chronobook.app"))
+
+
 def _enabled() -> bool:
+    if _resend_api_key():
+        return True
     c = _smtp_config()
     return bool(c["host"] and c["user"] and c["password"])
 
 
 def smtp_status() -> dict:
     c = _smtp_config()
+    provider = "resend" if _resend_api_key() else "smtp"
     return {
         "enabled": _enabled(),
+        "provider": provider,
         "host": c["host"],
         "user": c["user"],
     }
 
 
-def _send(to: str, subject: str, html: str) -> bool:
-    if not _enabled():
-        msg = "[EMAIL skipped] SMTP not configured — set SMTP_HOST, SMTP_USER, SMTP_PASSWORD in backend/.env"
-        _log_error(msg)
+def _send_via_resend(to: str, subject: str, html: str) -> bool:
+    api_key = _resend_api_key()
+    try:
+        r = httpx.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "from": _from_header(),
+                "to": [to],
+                "subject": subject,
+                "html": html,
+            },
+            timeout=15.0,
+        )
+        if r.status_code in (200, 201):
+            _log(f"[EMAIL] sent via Resend → to={to} subject={subject}")
+            return True
+        _log_error(f"[EMAIL] Resend API error → status={r.status_code} body={r.text}")
         return False
+    except Exception as e:
+        _log_error(f"[EMAIL] Resend failed → to={to} error={type(e).__name__}: {e}")
+        logger.exception("Resend email failed for %s", to)
+        return False
+
+
+def _send_via_smtp(to: str, subject: str, html: str) -> bool:
     c = _smtp_config()
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
-    msg["From"] = formataddr(("ChronoBook", c["user"]))
+    msg["From"] = _from_header()
     msg["To"] = to
     msg.attach(MIMEText(html, "html"))
     try:
@@ -66,17 +108,36 @@ def _send(to: str, subject: str, html: str) -> bool:
             server.ehlo()
             server.login(c["user"], c["password"])
             server.sendmail(c["user"], [to], msg.as_string())
-        _log(f"[EMAIL] sent → to={to} subject={subject}")
+        _log(f"[EMAIL] sent via SMTP → to={to} subject={subject}")
         return True
     except smtplib.SMTPAuthenticationError as e:
         _log_error(
             f"[EMAIL] SMTP auth failed for {c['user']} — use a Gmail App Password. Error: {e}"
         )
         return False
+    except OSError as e:
+        _log_error(
+            f"[EMAIL] SMTP connection failed → to={to} error={e}. "
+            "Render free tier blocks ports 587/465 — set RESEND_API_KEY or upgrade Render."
+        )
+        return False
     except Exception as e:
-        _log_error(f"[EMAIL] failed → to={to} error={type(e).__name__}: {e}")
+        _log_error(f"[EMAIL] SMTP failed → to={to} error={type(e).__name__}: {e}")
         logger.exception("Failed to send email to %s", to)
         return False
+
+
+def _send(to: str, subject: str, html: str) -> bool:
+    if not _enabled():
+        msg = (
+            "[EMAIL skipped] Email not configured — set RESEND_API_KEY (production on Render) "
+            "or SMTP_HOST, SMTP_USER, SMTP_PASSWORD (local dev)"
+        )
+        _log_error(msg)
+        return False
+    if _resend_api_key():
+        return _send_via_resend(to, subject, html)
+    return _send_via_smtp(to, subject, html)
 
 
 def _fmt_time(iso: str) -> str:
