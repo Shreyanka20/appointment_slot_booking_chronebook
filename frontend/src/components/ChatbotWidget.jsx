@@ -45,7 +45,7 @@ export default function ChatbotWidget() {
       <button
         onClick={() => setOpen((o) => !o)}
         data-testid="chatbot-toggle"
-        className="fixed bottom-6 right-6 w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 text-white flex items-center justify-center shadow-lg shadow-indigo-300/40 hover:scale-105 transition-transform z-50"
+        className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-br from-orange-600 to-amber-600 text-white flex items-center justify-center shadow-lg shadow-orange-300/40 hover:scale-105 transition-transform z-50"
         aria-label="Open chatbot"
       >
         {open ? <X size={22} /> : <MessageSquare size={22} />}
@@ -54,45 +54,45 @@ export default function ChatbotWidget() {
       {open && (
         <div
           data-testid="chatbot-panel"
-          className="fixed bottom-24 right-6 w-[360px] max-w-[calc(100vw-3rem)] h-[480px] bg-white rounded-2xl border border-slate-200 flex flex-col z-50 shadow-2xl shadow-slate-200/60 overflow-hidden"
+          className="fixed inset-x-3 bottom-[4.5rem] sm:inset-x-auto sm:bottom-24 sm:right-6 w-auto sm:w-[360px] max-w-none sm:max-w-[calc(100vw-3rem)] h-[min(480px,calc(100dvh-6rem))] bg-white rounded-2xl border border-stone-200 flex flex-col z-50 shadow-2xl shadow-stone-200/60 overflow-hidden"
         >
-          <div className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white px-4 py-3.5 flex items-center justify-between">
+          <div className="bg-gradient-to-r from-orange-600 to-amber-600 text-white px-4 py-3.5 flex items-center justify-between">
             <div>
               <div className="font-display font-bold tracking-tight">ChronoBot</div>
-              <div className="text-[11px] text-indigo-200 font-medium">AI assistant · online</div>
+              <div className="text-[11px] text-orange-200 font-medium">AI assistant · online</div>
             </div>
             <button onClick={() => setOpen(false)} aria-label="Close" className="p-1.5 rounded-lg hover:bg-white/20 transition-colors">
               <X size={18} />
             </button>
           </div>
-          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50">
+          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3 bg-stone-50">
             {messages.map((m, i) => (
               <div
                 key={i}
                 className={`max-w-[85%] px-3.5 py-2.5 rounded-2xl text-sm ${
                   m.role === "user"
-                    ? "ml-auto bg-indigo-600 text-white rounded-br-sm"
-                    : "bg-white border border-slate-100 text-slate-700 rounded-bl-sm shadow-sm"
+                    ? "ml-auto bg-orange-600 text-white rounded-br-sm"
+                    : "bg-white border border-stone-100 text-stone-700 rounded-bl-sm shadow-sm"
                 }`}
                 data-testid={`chat-msg-${m.role}-${i}`}
               >
                 {m.text}
               </div>
             ))}
-            {busy && <div className="text-xs text-slate-400 font-medium">Typing…</div>}
+            {busy && <div className="text-xs text-stone-400 font-medium">Typing…</div>}
           </div>
-          <form onSubmit={send} className="border-t border-slate-100 p-3 flex gap-2 bg-white">
+          <form onSubmit={send} className="border-t border-stone-100 p-3 flex gap-2 bg-white">
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Ask me anything…"
-              className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/15"
+              className="flex-1 border border-stone-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/15"
               data-testid="chatbot-input"
             />
             <button
               type="submit"
               disabled={busy || !input.trim()}
-              className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center hover:bg-indigo-700 disabled:opacity-40 transition-colors"
+              className="w-10 h-10 rounded-xl bg-orange-600 text-white flex items-center justify-center hover:bg-orange-700 disabled:opacity-40 transition-colors"
               data-testid="chatbot-send"
             >
               <Send size={16} />

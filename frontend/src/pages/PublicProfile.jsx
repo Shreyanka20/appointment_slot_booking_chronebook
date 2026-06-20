@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import Navbar from "@/components/Navbar";
+import CustomerShell from "@/components/layouts/CustomerShell";
 import { api } from "@/lib/api";
-import { Clock, ArrowRight, Star } from "lucide-react";
+import { Clock, ArrowRight, Star, Video } from "lucide-react";
 
 export default function PublicProfile() {
   const { username } = useParams();
@@ -25,77 +25,91 @@ export default function PublicProfile() {
     })();
   }, [username]);
 
-  if (error) return <div className="min-h-screen bg-slate-50"><Navbar /><div className="p-16 font-display text-2xl text-slate-700">{error}</div></div>;
-  if (!data) return <div className="min-h-screen bg-slate-50"><Navbar /><div className="p-16 font-display text-xl text-slate-500">Loading…</div></div>;
+  if (error) {
+    return (
+      <CustomerShell hostName="Not found" showHostPanel={false}>
+        <div className="client-card rounded-2xl border p-8 text-center shadow-xl shadow-black/20">
+          <p className="font-display text-xl text-client-text">{error}</p>
+        </div>
+      </CustomerShell>
+    );
+  }
+
+  if (!data) {
+    return (
+      <CustomerShell hostName="Loading" showHostPanel={false}>
+        <div className="client-card rounded-2xl border p-8 text-center text-slate-400">Loading…</div>
+      </CustomerShell>
+    );
+  }
 
   const { user, meeting_types } = data;
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <Navbar />
-      <main className="max-w-5xl mx-auto px-6 md:px-10 py-12" data-testid="public-profile-root">
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
-          <div className="md:col-span-4">
-            <div className="nb-card p-6 bg-gradient-to-br from-indigo-50 to-violet-50 border-indigo-100">
-              <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center font-display text-3xl font-bold text-white mb-4 shadow-md shadow-indigo-200">
-                {user.name?.[0]?.toUpperCase()}
-              </div>
-              <div className="text-sm text-indigo-600 font-medium mb-1">@{user.username}</div>
-              <h1 className="font-display text-2xl font-bold text-slate-900 mb-2">{user.name}</h1>
-              {reviews.count > 0 && (
-                <div className="flex items-center gap-1.5 mb-2">
-                  <Star size={16} className="text-amber-400" fill="currentColor" />
-                  <span className="font-semibold text-slate-900">{reviews.average_rating}</span>
-                  <span className="text-sm text-slate-500">({reviews.count} reviews)</span>
-                </div>
-              )}
-              <p className="text-sm text-slate-600">{user.bio || "Schedule a meeting using one of the options below."}</p>
-            </div>
+    <CustomerShell
+      hostName={user.name}
+      hostUsername={user.username}
+      hostBio={user.bio}
+      step="profile"
+    >
+      <div data-testid="public-profile-root">
+        <div className="client-card rounded-2xl border overflow-hidden shadow-xl shadow-black/30">
+          <div className="px-5 sm:px-6 py-4 border-b border-client-border client-gradient">
+            <h2 className="font-display text-lg font-bold text-white">Select a session</h2>
+            <p className="text-sm text-indigo-100/80 mt-0.5">Choose the type of meeting you'd like to book</p>
           </div>
-          <div className="md:col-span-8">
-            <p className="text-sm font-medium text-slate-500 mb-4">Choose a meeting type</p>
-            <div className="space-y-3">
-              {meeting_types.map((m) => (
-                <Link to={`/book/${user.username}/${m.meeting_type_id}`} key={m.meeting_type_id} data-testid={`mt-link-${m.meeting_type_id}`}>
-                  <div className="nb-card p-5 flex items-center justify-between hover:shadow-lg transition-shadow cursor-pointer group">
-                    <div className="flex items-center gap-4">
-                      <div style={{ background: m.color }} className="w-12 h-12 rounded-xl flex items-center justify-center">
-                        <Clock size={20} strokeWidth={2} className="text-slate-700" />
-                      </div>
-                      <div>
-                        <div className="font-display text-lg font-bold text-slate-900">{m.title}</div>
-                        <div className="text-sm text-slate-500">{m.duration_min} minutes</div>
-                      </div>
-                    </div>
-                    <ArrowRight className="text-slate-400 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={20} />
+
+          <div className="p-4 sm:p-5 space-y-3">
+            {meeting_types.map((m) => (
+              <Link
+                to={`/book/${user.username}/${m.meeting_type_id}`}
+                key={m.meeting_type_id}
+                data-testid={`mt-link-${m.meeting_type_id}`}
+                className="group block"
+              >
+                <div className="flex items-center gap-4 p-4 rounded-xl border border-client-border bg-client-bg/50 hover:border-client-primary hover:bg-client-primary/10 transition-all">
+                  <div
+                    style={{ background: m.color }}
+                    className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm"
+                  >
+                    <Video size={20} className="text-white" strokeWidth={2} />
                   </div>
-                </Link>
-              ))}
-              {meeting_types.length === 0 && (
-                <div className="nb-card p-8 text-center text-slate-500">This host hasn't set up any meeting types yet.</div>
-              )}
-            </div>
-            {reviews.reviews.length > 0 && (
-              <div className="mt-10">
-                <h2 className="font-display text-lg font-bold text-slate-900 mb-4">Reviews</h2>
-                <div className="space-y-3">
-                  {reviews.reviews.slice(0, 5).map((r) => (
-                    <div key={r.review_id} className="nb-card p-4">
-                      <div className="flex items-center gap-1 mb-1">
-                        {[1, 2, 3, 4, 5].map((n) => (
-                          <Star key={n} size={14} className={n <= r.rating ? "text-amber-400" : "text-slate-200"} fill={n <= r.rating ? "currentColor" : "none"} />
-                        ))}
-                      </div>
-                      {r.comment && <p className="text-sm text-slate-600">{r.comment}</p>}
-                      <p className="text-xs text-slate-400 mt-2">— {r.reviewer_name}</p>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-display text-base sm:text-lg font-bold text-client-text group-hover:text-violet-300 transition-colors">
+                      {m.title}
                     </div>
-                  ))}
+                    <div className="text-sm text-slate-400 flex items-center gap-1.5 mt-0.5">
+                      <Clock size={13} /> {m.duration_min} min
+                    </div>
+                  </div>
+                  <ArrowRight className="text-slate-600 group-hover:text-client-primary group-hover:translate-x-1 transition-all shrink-0" size={20} />
                 </div>
+              </Link>
+            ))}
+
+            {meeting_types.length === 0 && (
+              <div className="py-12 text-center text-slate-500 text-sm">
+                No sessions available right now. Please check back later.
               </div>
             )}
           </div>
+
+          {reviews.count > 0 && (
+            <div className="px-5 sm:px-6 py-5 border-t border-client-border bg-client-bg/60">
+              <div className="flex items-center gap-2 mb-3">
+                <Star size={16} className="text-amber-400" fill="currentColor" />
+                <span className="font-bold text-client-text">{reviews.average_rating}</span>
+                <span className="text-sm text-slate-400">({reviews.count} reviews)</span>
+              </div>
+              <div className="space-y-2">
+                {reviews.reviews.slice(0, 2).map((r) => (
+                  <p key={r.review_id} className="text-sm text-slate-400 italic">"{r.comment || "Great meeting!"}" — {r.reviewer_name}</p>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
-      </main>
-    </div>
+      </div>
+    </CustomerShell>
   );
 }

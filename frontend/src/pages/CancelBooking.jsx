@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
-import Navbar from "@/components/Navbar";
+import CustomerShell from "@/components/layouts/CustomerShell";
 import { api } from "@/lib/api";
 import { XCircle } from "lucide-react";
 
@@ -29,36 +29,46 @@ export default function CancelBooking() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <Navbar />
-      <main className="max-w-md mx-auto px-6 py-16">
-        <div className="nb-card p-8 text-center">
-          {done ? (
-            <>
-              <XCircle size={48} className="text-red-500 mx-auto mb-4" />
-              <h1 className="font-display text-2xl font-bold mb-2">Booking cancelled</h1>
-              <p className="text-slate-500 text-sm mb-6">Both parties have been notified by email.</p>
-              <Link to="/" className="nb-btn">Back home</Link>
-            </>
-          ) : err ? (
-            <p className="text-red-600">{err}</p>
-          ) : !booking ? (
-            <p className="text-slate-500">Loading…</p>
-          ) : (
-            <>
-              <h1 className="font-display text-2xl font-bold mb-2">Cancel booking?</h1>
-              <p className="text-slate-600 mb-1">{booking.meeting_title}</p>
-              <p className="text-sm text-slate-500 mb-6">{new Date(booking.start_iso).toLocaleString()}</p>
-              <div className="flex gap-3">
-                <Link to="/" className="nb-btn nb-btn-secondary flex-1">Keep it</Link>
-                <button onClick={cancel} className="nb-btn flex-1 bg-red-600 hover:bg-red-700" style={{ background: "#dc2626", boxShadow: "0 2px 8px rgba(220,38,38,0.35)" }}>
-                  Cancel
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      </main>
-    </div>
+    <CustomerShell
+      hostName={booking?.host_name || "Booking"}
+      meetingTitle={booking?.meeting_title}
+      step="confirm"
+      showHostPanel={!!booking}
+    >
+      <div className="client-card rounded-2xl border p-6 sm:p-8 text-center shadow-xl shadow-black/30">
+        {done ? (
+          <>
+            <XCircle size={48} className="text-red-400 mx-auto mb-4" />
+            <h1 className="font-display text-2xl font-bold text-client-text mb-2">Booking cancelled</h1>
+            <p className="text-slate-400 text-sm mb-6">Both parties have been notified by email.</p>
+            <Link to="/" className="inline-flex items-center justify-center px-6 py-3 rounded-xl client-gradient text-white font-semibold text-sm">
+              Done
+            </Link>
+          </>
+        ) : err ? (
+          <p className="text-red-400">{err}</p>
+        ) : !booking ? (
+          <p className="text-slate-400">Loading…</p>
+        ) : (
+          <>
+            <h1 className="font-display text-2xl font-bold text-client-text mb-2">Cancel booking?</h1>
+            <p className="text-slate-300 mb-1">{booking.meeting_title}</p>
+            <p className="text-sm text-slate-500 mb-6">{new Date(booking.start_iso).toLocaleString()}</p>
+            <div className="flex flex-col xs:flex-row gap-3">
+              <Link to="/" className="flex-1 py-3 rounded-xl border border-client-border font-semibold text-slate-300 hover:bg-client-bg transition-colors">
+                Keep booking
+              </Link>
+              <button
+                type="button"
+                onClick={cancel}
+                className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-semibold transition-colors"
+              >
+                Yes, cancel
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </CustomerShell>
   );
 }

@@ -7,12 +7,31 @@ module.exports = {
   ],
   theme: {
     extend: {
+      screens: {
+        xs: '480px',
+      },
       borderRadius: {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)'
       },
       colors: {
+        host: {
+          primary: '#4F46E5',
+          secondary: '#6366F1',
+          accent: '#8B5CF6',
+          bg: '#F8FAFC',
+          card: '#FFFFFF',
+          text: '#0F172A',
+        },
+        client: {
+          primary: '#7C3AED',
+          secondary: '#9333EA',
+          bg: '#0F172A',
+          card: '#1E293B',
+          text: '#F8FAFC',
+          border: '#334155',
+        },
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
         card: {

@@ -11,12 +11,14 @@ import BookingPage from "@/pages/BookingPage";
 import BookingConfirmed from "@/pages/BookingConfirmed";
 import CancelBooking from "@/pages/CancelBooking";
 import ReviewPage from "@/pages/ReviewPage";
+import CustomerDashboard from "@/pages/CustomerDashboard";
+import AuthCallback from "@/pages/AuthCallback";
 import ChatbotWidget from "@/components/ChatbotWidget";
 import { Toaster } from "sonner";
 
 function ProtectedRoute({ children, adminOnly = false }) {
   const { user, loading } = useAuth();
-  if (loading) return <div className="p-12 font-display text-2xl">Loading…</div>;
+  if (loading) return <div className="page-shell p-8 sm:p-12 font-display text-xl sm:text-2xl text-center">Loading…</div>;
   if (!user) return <Navigate to="/login" replace />;
   if (adminOnly && user.role !== "admin") return <Navigate to="/dashboard" replace />;
   return children;
@@ -24,7 +26,8 @@ function ProtectedRoute({ children, adminOnly = false }) {
 
 function AppRouter() {
   const location = useLocation();
-  // Handle OAuth callback (URL fragment with session_id)
+  const isCustomerFlow = /^\/(u|book|confirmed|cancel|review|my-bookings)/.test(location.pathname);
+
   if (typeof window !== "undefined" && window.location.hash?.includes("session_id=")) {
     return <AuthCallback />;
   }
@@ -36,6 +39,7 @@ function AppRouter() {
         <Route path="/register" element={<Register />} />
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/admin" element={<ProtectedRoute adminOnly><AdminDashboard /></ProtectedRoute>} />
+        <Route path="/my-bookings" element={<CustomerDashboard />} />
         <Route path="/book/:username/:meetingTypeId" element={<BookingPage />} />
         <Route path="/confirmed/:bookingId" element={<BookingConfirmed />} />
         <Route path="/cancel/:bookingId" element={<CancelBooking />} />
@@ -43,7 +47,7 @@ function AppRouter() {
         <Route path="/u/:username" element={<PublicProfile />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-      <ChatbotWidget />
+      {!isCustomerFlow && <ChatbotWidget />}
     </>
   );
 }
@@ -54,9 +58,9 @@ export default function App() {
       <BrowserRouter>
         <AppRouter />
         <Toaster
-          position="top-right"
+          position="top-center"
           toastOptions={{
-            className: "!bg-white !border !border-slate-200 !rounded-xl !shadow-lg",
+            className: "!bg-white !border !border-stone-200 !rounded-xl !shadow-lg",
           }}
         />
       </BrowserRouter>

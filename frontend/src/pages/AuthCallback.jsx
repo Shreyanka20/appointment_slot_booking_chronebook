@@ -28,8 +28,8 @@ export default function AuthCallback() {
   }, [navigate]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50">
-      <div className="nb-card p-8 font-display text-xl font-semibold text-slate-700">Signing you in…</div>
+    <div className="min-h-screen flex items-center justify-center bg-stone-50">
+      <div className="nb-card p-8 font-display text-xl font-semibold text-stone-700">Signing you in…</div>
     </div>
   );
 }

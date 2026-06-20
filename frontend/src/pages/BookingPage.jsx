@@ -1,14 +1,14 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import Navbar from "@/components/Navbar";
+import CustomerShell from "@/components/layouts/CustomerShell";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { DayPicker } from "react-day-picker";
 import "react-day-picker/dist/style.css";
-import { Clock, ChevronLeft } from "lucide-react";
+import { Clock, ChevronLeft, Calendar, User } from "lucide-react";
 import { toast } from "sonner";
+import { addCustomerBooking } from "@/lib/customerBookings";
 
 function formatDate(d) {
-  // YYYY-MM-DD in local
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
@@ -72,46 +72,68 @@ export default function BookingPage() {
         notes: form.notes,
       });
       toast.success("Booked!");
+      addCustomerBooking(r.data);
       navigate(`/confirmed/${r.data.booking_id}`, { state: r.data });
     } catch (e) {
       setErr(formatApiErrorDetail(e.response?.data?.detail) || e.message);
     } finally { setBusy(false); }
   };
 
-  if (err && !profile) return <div className="min-h-screen bg-slate-50"><Navbar /><div className="p-16 font-display text-2xl text-slate-700">{err}</div></div>;
-  if (!profile || !meetingType) return <div className="min-h-screen bg-slate-50"><Navbar /><div className="p-16 font-display text-xl text-slate-500">Loading…</div></div>;
+  if (err && !profile) {
+    return (
+      <CustomerShell hostName="Error" showHostPanel={false}>
+        <div className="bg-white rounded-2xl shadow-xl p-8 text-center text-stone-700">{err}</div>
+      </CustomerShell>
+    );
+  }
+
+  if (!profile || !meetingType) {
+    return (
+      <CustomerShell hostName="Loading" showHostPanel={false}>
+        <div className="bg-white rounded-2xl shadow-xl p-8 text-center text-stone-500">Loading…</div>
+      </CustomerShell>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <Navbar />
-      <main className="max-w-6xl mx-auto px-6 md:px-10 py-10" data-testid="booking-root">
-        <button onClick={() => navigate(`/u/${username}`)} className="flex items-center gap-2 text-sm font-medium text-slate-600 mb-6 hover:text-indigo-600 transition-colors" data-testid="booking-back"><ChevronLeft size={16}/> Back</button>
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
-          {/* Host info */}
-          <div className="md:col-span-4">
-            <div className="nb-card p-6">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center font-display text-2xl font-bold text-white mb-4">
-                {profile.user.name?.[0]?.toUpperCase()}
-              </div>
-              <div className="text-sm text-slate-500 mb-1">{profile.user.name}</div>
-              <h1 className="font-display text-2xl font-bold text-slate-900 mb-3">{meetingType.title}</h1>
-              <div className="flex items-center gap-2 text-sm text-slate-500 mb-2"><Clock size={14}/> {meetingType.duration_min} minutes</div>
-              {meetingType.description && <p className="text-sm text-slate-600 mt-3">{meetingType.description}</p>}
-              {selectedSlot && (
-                <div className="mt-5 p-3 bg-indigo-50 border border-indigo-100 rounded-xl">
-                  <div className="text-xs text-indigo-600 font-medium">Selected</div>
-                  <div className="font-display text-base font-bold text-slate-900">{new Date(selectedSlot).toLocaleString()}</div>
-                </div>
+    <CustomerShell
+      hostName={profile.user.name}
+      hostUsername={profile.user.username}
+      hostBio={profile.user.bio}
+      meetingTitle={meetingType.title}
+      step="book"
+    >
+      <div data-testid="booking-root">
+      <button
+        type="button"
+        onClick={() => navigate(`/u/${username}`)}
+        className="flex items-center gap-2 text-sm font-medium text-client-primary mb-4 hover:text-violet-300 transition-colors"
+        data-testid="booking-back"
+      >
+        <ChevronLeft size={16} /> Back to sessions
+      </button>
+
+      <div className="client-card rounded-2xl border overflow-hidden shadow-xl shadow-black/30">
+        {!selectedSlot ? (
+          <>
+            <div className="px-5 sm:px-6 py-4 border-b border-client-border flex items-center gap-2 text-sm text-slate-400">
+              <Clock size={16} className="text-client-primary" />
+              <span>{meetingType.duration_min} minutes</span>
+              {meetingType.description && (
+                <>
+                  <span className="text-slate-600">·</span>
+                  <span className="truncate">{meetingType.description}</span>
+                </>
               )}
             </div>
-          </div>
 
-          {/* Calendar + slots OR form */}
-          <div className="md:col-span-8">
-            {!selectedSlot ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="nb-card p-4">
-                  <p className="text-sm font-medium text-slate-700 mb-3">Pick a date</p>
+            <div className="p-4 sm:p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Calendar size={16} className="text-client-primary" />
+                  <p className="text-sm font-semibold text-client-text">1. Pick a date</p>
+                </div>
+                <div className="rounded-xl border border-client-border p-2 overflow-x-auto bg-client-bg">
                   <DayPicker
                     mode="single"
                     selected={selectedDate}
@@ -120,45 +142,88 @@ export default function BookingPage() {
                     data-testid="booking-calendar"
                   />
                 </div>
-                <div className="nb-card p-5">
-                  <p className="text-sm font-medium text-slate-700 mb-3">Available slots</p>
-                  {!selectedDate && <div className="text-sm font-medium">Pick a date first.</div>}
-                  {selectedDate && loadingSlots && <div className="text-sm font-medium">Loading…</div>}
-                  {selectedDate && !loadingSlots && slots.length === 0 && <div className="text-sm font-medium">No availability on this day.</div>}
-                  <div className="grid grid-cols-2 gap-2 max-h-96 overflow-y-auto">
-                    {slots.map((s) => (
-                      <button key={s} onClick={() => setSelectedSlot(s)} className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 font-semibold text-sm hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700 transition-colors" data-testid={`time-slot-${s}`}>
-                        {new Date(s).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                      </button>
-                    ))}
-                  </div>
+              </div>
+
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Clock size={16} className="text-client-primary" />
+                  <p className="text-sm font-semibold text-client-text">2. Pick a time</p>
+                </div>
+                {!selectedDate && (
+                  <p className="text-sm text-slate-500 py-8 text-center rounded-xl bg-client-bg border border-dashed border-client-border">
+                    Select a date first
+                  </p>
+                )}
+                {selectedDate && loadingSlots && (
+                  <p className="text-sm text-slate-500 py-8 text-center">Loading times…</p>
+                )}
+                {selectedDate && !loadingSlots && slots.length === 0 && (
+                  <p className="text-sm text-slate-500 py-8 text-center rounded-xl bg-client-bg">No slots on this day</p>
+                )}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-64 overflow-y-auto">
+                  {slots.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setSelectedSlot(s)}
+                      className="rounded-xl border border-client-border bg-client-bg px-3 py-3 font-semibold text-sm text-client-text hover:border-client-primary hover:bg-client-primary/20 transition-all"
+                      data-testid={`time-slot-${s}`}
+                    >
+                      {new Date(s).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </button>
+                  ))}
                 </div>
               </div>
-            ) : (
-              <form onSubmit={submit} className="nb-card p-6 space-y-4 max-w-lg">
-                <h2 className="font-display text-2xl font-extrabold">Your details</h2>
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest mb-2">Name</label>
-                  <input required value={form.invitee_name} onChange={(e) => setForm({ ...form, invitee_name: e.target.value })} className="nb-input" data-testid="invitee-name" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest mb-2">Email</label>
-                  <input type="email" required value={form.invitee_email} onChange={(e) => setForm({ ...form, invitee_email: e.target.value })} className="nb-input" data-testid="invitee-email" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest mb-2">Notes (optional)</label>
-                  <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={3} className="nb-input" data-testid="invitee-notes" />
-                </div>
-                {err && <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm font-medium">{err}</div>}
-                <div className="flex gap-3">
-                  <button type="button" onClick={() => setSelectedSlot(null)} className="nb-btn nb-btn-secondary">Change time</button>
-                  <button type="submit" disabled={busy} className="nb-btn flex-1" data-testid="confirm-booking-button">{busy ? "Booking…" : "Confirm Booking"}</button>
-                </div>
-              </form>
+            </div>
+          </>
+        ) : (
+          <form onSubmit={submit} className="p-5 sm:p-6 space-y-5">
+            <div className="flex items-center gap-2 p-3 rounded-xl bg-client-primary/15 border border-client-primary/30 text-sm">
+              <Calendar size={16} className="text-client-primary shrink-0" />
+              <span className="font-semibold text-client-text">{new Date(selectedSlot).toLocaleString()}</span>
+              <button
+                type="button"
+                onClick={() => setSelectedSlot(null)}
+                className="ml-auto text-xs font-semibold text-client-primary hover:underline"
+              >
+                Change
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 mb-1">
+              <User size={16} className="text-client-primary" />
+              <h2 className="font-display text-xl font-bold text-client-text">3. Your details</h2>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Full name</label>
+              <input required value={form.invitee_name} onChange={(e) => setForm({ ...form, invitee_name: e.target.value })} className="w-full rounded-xl border border-client-border bg-client-bg px-4 py-3 text-client-text outline-none focus:border-client-primary focus:ring-2 focus:ring-client-primary/20" data-testid="invitee-name" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Email</label>
+              <input type="email" required value={form.invitee_email} onChange={(e) => setForm({ ...form, invitee_email: e.target.value })} className="w-full rounded-xl border border-client-border bg-client-bg px-4 py-3 text-client-text outline-none focus:border-client-primary focus:ring-2 focus:ring-client-primary/20" data-testid="invitee-email" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Notes (optional)</label>
+              <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={3} className="w-full rounded-xl border border-client-border bg-client-bg px-4 py-3 text-client-text outline-none focus:border-client-primary focus:ring-2 focus:ring-client-primary/20" data-testid="invitee-notes" />
+            </div>
+
+            {err && (
+              <div className="rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 px-4 py-3 text-sm font-medium">{err}</div>
             )}
-          </div>
-        </div>
-      </main>
-    </div>
+
+            <button
+              type="submit"
+              disabled={busy}
+              className="w-full py-3.5 rounded-xl client-gradient text-white font-semibold shadow-lg shadow-violet-900/40 hover:opacity-95 transition-opacity disabled:opacity-60"
+              data-testid="confirm-booking-button"
+            >
+              {busy ? "Confirming…" : "Confirm booking"}
+            </button>
+          </form>
+        )}
+      </div>
+      </div>
+    </CustomerShell>
   );
 }

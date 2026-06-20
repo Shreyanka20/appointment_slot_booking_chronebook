@@ -15,7 +15,7 @@ from datetime import datetime, timezone, timedelta, date as dt_date, time as dt_
 from typing import List, Optional, Literal
 
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, RedirectResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr
@@ -30,6 +30,7 @@ except ImportError:
 from services.email_service import send_booking_confirmation, send_booking_cancellation, smtp_status
 from services.meet_service import create_meet_link, generate_cancel_token
 from services import notifications as notify_svc
+from services import google_oauth
 
 
 # ---------- Setup ----------
@@ -199,6 +200,15 @@ class CancelTokenReq(BaseModel):
     token: str
 
 
+class InviteeLookupReq(BaseModel):
+    email: EmailStr
+
+
+class RescheduleReq(BaseModel):
+    token: str
+    start_iso: str
+
+
 # ---------- Auth Endpoints ----------
 def _slugify(s: str) -> str:
     import re
@@ -213,6 +223,65 @@ async def unique_username(base: str) -> str:
         i += 1
         candidate = f"{base}-{i}"
     return candidate
+
+
+async def seed_new_host(uid: str):
+    for mt in [
+        {"title": "15 Minute Chat", "duration_min": 15, "color": "#BBDEFB"},
+        {"title": "30 Minute Meeting", "duration_min": 30, "color": "#FFD54F"},
+        {"title": "60 Minute Deep Dive", "duration_min": 60, "color": "#A5D6A7"},
+    ]:
+        await db.meeting_types.insert_one({
+            "meeting_type_id": gen_id("mt"),
+            "user_id": uid,
+            "title": mt["title"],
+            "description": "",
+            "duration_min": mt["duration_min"],
+            "color": mt["color"],
+            "active": True,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+    await db.availability.insert_one({
+        "user_id": uid,
+        "timezone": "UTC",
+        "rules": [{"weekday": wd, "start": "09:00", "end": "17:00"} for wd in range(0, 5)],
+    })
+
+
+async def find_or_create_google_user(profile: dict) -> dict:
+    email = profile["email"].lower()
+    google_id = profile.get("sub", "")
+    user = await db.users.find_one({"email": email}, {"_id": 0})
+    if user:
+        updates = {}
+        if google_id and user.get("google_id") != google_id:
+            updates["google_id"] = google_id
+        if profile.get("picture") and not user.get("picture"):
+            updates["picture"] = profile["picture"]
+        if updates:
+            await db.users.update_one({"user_id": user["user_id"]}, {"$set": updates})
+            user.update(updates)
+        return user
+
+    uid = gen_id("u")
+    username = await unique_username(_slugify(profile.get("name") or email.split("@")[0]))
+    doc = {
+        "user_id": uid,
+        "name": profile.get("name") or email.split("@")[0],
+        "email": email,
+        "username": username,
+        "password_hash": "",
+        "google_id": google_id,
+        "role": "user",
+        "picture": profile.get("picture", ""),
+        "bio": "",
+        "timezone": "UTC",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.users.insert_one(doc)
+    await seed_new_host(uid)
+    doc.pop("_id", None)
+    return doc
 
 
 def public_user(u: dict) -> dict:
@@ -247,28 +316,7 @@ async def register(req: RegisterReq, response: Response):
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.users.insert_one(doc)
-    # seed default meeting types
-    for mt in [
-        {"title": "15 Minute Chat", "duration_min": 15, "color": "#BBDEFB"},
-        {"title": "30 Minute Meeting", "duration_min": 30, "color": "#FFD54F"},
-        {"title": "60 Minute Deep Dive", "duration_min": 60, "color": "#A5D6A7"},
-    ]:
-        await db.meeting_types.insert_one({
-            "meeting_type_id": gen_id("mt"),
-            "user_id": uid,
-            "title": mt["title"],
-            "description": "",
-            "duration_min": mt["duration_min"],
-            "color": mt["color"],
-            "active": True,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
-    # default availability: Mon-Fri 9-17
-    await db.availability.insert_one({
-        "user_id": uid,
-        "timezone": "UTC",
-        "rules": [{"weekday": wd, "start": "09:00", "end": "17:00"} for wd in range(0, 5)],
-    })
+    await seed_new_host(uid)
     token = create_access_token(uid, email)
     set_auth_cookie(response, token)
     return {"user": public_user(doc), "token": token}
@@ -294,6 +342,44 @@ async def logout(response: Response):
 @api.get("/auth/me")
 async def me(user=Depends(get_current_user)):
     return public_user(user)
+
+
+@api.get("/auth/google/login")
+async def google_login(next: str = "/dashboard"):
+    if not google_oauth.is_configured():
+        raise HTTPException(status_code=503, detail="Google sign-in is not configured on the server")
+    if not next.startswith("/") or next.startswith("//"):
+        next = "/dashboard"
+    state = google_oauth.new_state()
+    cross_site = _use_cross_site_cookies()
+    response = RedirectResponse(google_oauth.build_auth_url(state), status_code=302)
+    response.set_cookie("oauth_state", state, httponly=True, max_age=600, samesite="lax", secure=cross_site, path="/")
+    response.set_cookie("oauth_next", next, httponly=True, max_age=600, samesite="lax", secure=cross_site, path="/")
+    return response
+
+
+@api.get("/auth/google/callback")
+async def google_callback(request: Request, code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None):
+    front = FRONTEND_URL.rstrip("/")
+    if error:
+        return RedirectResponse(f"{front}/login?error=google_denied")
+    saved_state = request.cookies.get("oauth_state")
+    next_path = request.cookies.get("oauth_next") or "/dashboard"
+    if not code or not state or not saved_state or state != saved_state:
+        return RedirectResponse(f"{front}/login?error=google_invalid")
+    try:
+        profile = await google_oauth.exchange_code(code)
+        user = await find_or_create_google_user(profile)
+    except Exception as exc:
+        logger.exception("Google OAuth callback failed: %s", exc)
+        return RedirectResponse(f"{front}/login?error=google_failed")
+    token = create_access_token(user["user_id"], user["email"])
+    dest = "/admin" if user.get("role") == "admin" else next_path
+    response = RedirectResponse(f"{front}{dest}")
+    response.delete_cookie("oauth_state", path="/")
+    response.delete_cookie("oauth_next", path="/")
+    set_auth_cookie(response, token)
+    return response
 
 
 @api.post("/auth/google/session")
@@ -329,25 +415,7 @@ async def google_session(request: Request, response: Response):
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         await db.users.insert_one(doc)
-        for mt in [
-            {"title": "15 Minute Chat", "duration_min": 15, "color": "#BBDEFB"},
-            {"title": "30 Minute Meeting", "duration_min": 30, "color": "#FFD54F"},
-        ]:
-            await db.meeting_types.insert_one({
-                "meeting_type_id": gen_id("mt"),
-                "user_id": uid,
-                "title": mt["title"],
-                "description": "",
-                "duration_min": mt["duration_min"],
-                "color": mt["color"],
-                "active": True,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            })
-        await db.availability.insert_one({
-            "user_id": uid,
-            "timezone": "UTC",
-            "rules": [{"weekday": wd, "start": "09:00", "end": "17:00"} for wd in range(0, 5)],
-        })
+        await seed_new_host(uid)
         user = doc
     # Save session token
     session_token = data["session_token"]
@@ -420,7 +488,7 @@ async def set_my_availability(req: AvailabilityReq, user=Depends(get_current_use
 
 # ---------- Slots ----------
 @api.get("/slots")
-async def get_slots(host_user_id: str, meeting_type_id: str, date: str):
+async def get_slots(host_user_id: str, meeting_type_id: str, date: str, exclude_booking_id: Optional[str] = None):
     # date format: YYYY-MM-DD
     mt = await db.meeting_types.find_one({"meeting_type_id": meeting_type_id, "user_id": host_user_id}, {"_id": 0})
     if not mt:
@@ -447,6 +515,8 @@ async def get_slots(host_user_id: str, meeting_type_id: str, date: str):
     }, {"_id": 0}).to_list(200)
     busy = []
     for b in existing:
+        if exclude_booking_id and b.get("booking_id") == exclude_booking_id:
+            continue
         s = datetime.fromisoformat(b["start_iso"])
         e = s + timedelta(minutes=int(b["duration_min"]))
         busy.append((s, e))
@@ -586,6 +656,100 @@ async def cancel_booking_by_token(booking_id: str, req: CancelTokenReq):
     send_booking_cancellation(booking, booking["host_email"])
     await notify_svc.notify_booking_cancelled(db, booking, "invitee")
     return {"status": "cancelled"}
+
+
+@api.post("/bookings/invitee/lookup")
+async def invitee_bookings(req: InviteeLookupReq):
+    email = req.email.lower()
+    now = datetime.now(timezone.utc).isoformat()
+    bks = await db.bookings.find(
+        {"invitee_email": email},
+        {"_id": 0},
+    ).sort("start_iso", -1).to_list(100)
+    out = []
+    for b in bks:
+        out.append({
+            "booking_id": b["booking_id"],
+            "host_name": b.get("host_name"),
+            "host_user_id": b.get("host_user_id"),
+            "meeting_type_id": b.get("meeting_type_id"),
+            "meeting_title": b.get("meeting_title"),
+            "start_iso": b.get("start_iso"),
+            "duration_min": b.get("duration_min"),
+            "meet_link": b.get("meet_link"),
+            "status": b.get("status", "confirmed"),
+            "invitee_email": b.get("invitee_email"),
+            "invitee_name": b.get("invitee_name"),
+            "cancel_token": b.get("cancel_token"),
+            "is_upcoming": b.get("start_iso", "") >= now and b.get("status") == "confirmed",
+        })
+    return {"bookings": out, "email": email}
+
+
+@api.patch("/bookings/{booking_id}/reschedule")
+async def reschedule_booking(booking_id: str, req: RescheduleReq):
+    booking = await db.bookings.find_one(
+        {"booking_id": booking_id, "cancel_token": req.token},
+        {"_id": 0},
+    )
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking.get("status") != "confirmed":
+        raise HTTPException(status_code=400, detail="Cannot reschedule a cancelled booking")
+    mt = await db.meeting_types.find_one(
+        {"meeting_type_id": booking["meeting_type_id"], "user_id": booking["host_user_id"]},
+        {"_id": 0},
+    )
+    if not mt:
+        raise HTTPException(status_code=404, detail="Meeting type not found")
+    host = await db.users.find_one({"user_id": booking["host_user_id"]}, {"_id": 0, "password_hash": 0})
+    if not host:
+        raise HTTPException(status_code=404, detail="Host not found")
+    try:
+        start = datetime.fromisoformat(req.start_iso.replace("Z", "+00:00"))
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid start_iso")
+    if start <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Please choose a future time slot")
+    end = start + timedelta(minutes=int(mt["duration_min"]))
+    existing = await db.bookings.find({
+        "host_user_id": booking["host_user_id"],
+        "status": "confirmed",
+        "booking_id": {"$ne": booking_id},
+    }, {"_id": 0}).to_list(1000)
+    for b in existing:
+        bs = datetime.fromisoformat(b["start_iso"].replace("Z", "+00:00"))
+        if bs.tzinfo is None:
+            bs = bs.replace(tzinfo=timezone.utc)
+        be = bs + timedelta(minutes=int(b["duration_min"]))
+        if not (end <= bs or start >= be):
+            raise HTTPException(status_code=409, detail="Slot already booked")
+    meet_link = create_meet_link(
+        booking_id,
+        host,
+        mt["title"],
+        start_iso=start.isoformat(),
+        duration_min=int(mt["duration_min"]),
+    )
+    await db.bookings.update_one(
+        {"booking_id": booking_id},
+        {"$set": {"start_iso": start.isoformat(), "meet_link": meet_link}},
+    )
+    booking["start_iso"] = start.isoformat()
+    booking["meet_link"] = meet_link
+    invitee_sent = send_booking_confirmation(booking, booking["invitee_email"], "invitee")
+    host_sent = send_booking_confirmation(booking, booking["host_email"], "host")
+    logger.info(
+        "[BOOKING] rescheduled → booking=%s new_start=%s invitee_sent=%s host_sent=%s",
+        booking_id, start.isoformat(), invitee_sent, host_sent,
+    )
+    booking.pop("cancel_token", None)
+    return {
+        **booking,
+        "emails_sent": {"invitee": invitee_sent, "host": host_sent},
+    }
 
 
 @api.get("/bookings/{booking_id}")
