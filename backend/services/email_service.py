@@ -36,20 +36,42 @@ def _smtp_config():
     }
 
 
+def _brevo_api_key() -> str:
+    return os.environ.get("BREVO_API_KEY", "").strip()
+
+
 def _resend_api_key() -> str:
     return os.environ.get("RESEND_API_KEY", "").strip()
 
 
+def _sender_info() -> tuple[str, str]:
+    name = os.environ.get("SENDER_NAME", "ChronoBook").strip() or "ChronoBook"
+    email = os.environ.get("SENDER_EMAIL", "").strip()
+    if not email:
+        c = _smtp_config()
+        raw = c["from_addr"]
+        if "<" in raw and ">" in raw:
+            email = raw.split("<", 1)[1].split(">", 1)[0].strip()
+        else:
+            email = raw or c["user"] or "noreply@chronobook.app"
+    return name, email
+
+
 def _from_header() -> str:
-    c = _smtp_config()
-    raw = c["from_addr"]
-    if "<" in raw and ">" in raw:
-        return raw
-    return formataddr(("ChronoBook", raw or c["user"] or "noreply@chronobook.app"))
+    name, email = _sender_info()
+    return formataddr((name, email))
+
+
+def _email_provider() -> str:
+    if _brevo_api_key():
+        return "brevo"
+    if _resend_api_key():
+        return "resend"
+    return "smtp"
 
 
 def _enabled() -> bool:
-    if _resend_api_key():
+    if _brevo_api_key() or _resend_api_key():
         return True
     c = _smtp_config()
     return bool(c["host"] and c["user"] and c["password"])
@@ -57,13 +79,48 @@ def _enabled() -> bool:
 
 def smtp_status() -> dict:
     c = _smtp_config()
-    provider = "resend" if _resend_api_key() else "smtp"
+    name, email = _sender_info()
     return {
         "enabled": _enabled(),
-        "provider": provider,
+        "provider": _email_provider(),
         "host": c["host"],
         "user": c["user"],
+        "sender_email": email,
+        "sender_name": name,
     }
+
+
+def _send_via_brevo(to: str, subject: str, html: str) -> bool:
+    try:
+        import sib_api_v3_sdk
+        from sib_api_v3_sdk.rest import ApiException
+    except ImportError:
+        _log_error("[EMAIL] Brevo SDK not installed — pip install sib-api-v3-sdk")
+        return False
+
+    name, email = _sender_info()
+    configuration = sib_api_v3_sdk.Configuration()
+    configuration.api_key["api-key"] = _brevo_api_key()
+    api_instance = sib_api_v3_sdk.TransactionalEmailsApi(
+        sib_api_v3_sdk.ApiClient(configuration)
+    )
+    payload = sib_api_v3_sdk.SendSmtpEmail(
+        to=[{"email": to}],
+        sender={"email": email, "name": name},
+        subject=subject,
+        html_content=html,
+    )
+    try:
+        api_instance.send_transac_email(payload)
+        _log(f"[EMAIL] sent via Brevo → to={to} subject={subject}")
+        return True
+    except ApiException as e:
+        _log_error(f"[EMAIL] Brevo API error → to={to} status={e.status} body={e.body}")
+        return False
+    except Exception as e:
+        _log_error(f"[EMAIL] Brevo failed → to={to} error={type(e).__name__}: {e}")
+        logger.exception("Brevo email failed for %s", to)
+        return False
 
 
 def _send_via_resend(to: str, subject: str, html: str) -> bool:
@@ -118,7 +175,7 @@ def _send_via_smtp(to: str, subject: str, html: str) -> bool:
     except OSError as e:
         _log_error(
             f"[EMAIL] SMTP connection failed → to={to} error={e}. "
-            "Render free tier blocks ports 587/465 — set RESEND_API_KEY or upgrade Render."
+            "Render free tier blocks ports 587/465 — set BREVO_API_KEY or RESEND_API_KEY."
         )
         return False
     except Exception as e:
@@ -130,12 +187,15 @@ def _send_via_smtp(to: str, subject: str, html: str) -> bool:
 def _send(to: str, subject: str, html: str) -> bool:
     if not _enabled():
         msg = (
-            "[EMAIL skipped] Email not configured — set RESEND_API_KEY (production on Render) "
-            "or SMTP_HOST, SMTP_USER, SMTP_PASSWORD (local dev)"
+            "[EMAIL skipped] Email not configured — set BREVO_API_KEY (production on Render), "
+            "RESEND_API_KEY, or SMTP_HOST/SMTP_USER/SMTP_PASSWORD (local dev)"
         )
         _log_error(msg)
         return False
-    if _resend_api_key():
+    provider = _email_provider()
+    if provider == "brevo":
+        return _send_via_brevo(to, subject, html)
+    if provider == "resend":
         return _send_via_resend(to, subject, html)
     return _send_via_smtp(to, subject, html)
 

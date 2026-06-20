@@ -691,7 +691,8 @@ async def health_email():
     return {
         "enabled": s["enabled"],
         "provider": s.get("provider", "smtp"),
-        "from": os.environ.get("EMAIL_FROM") or os.environ.get("SMTP_USER") or None,
+        "sender_email": s.get("sender_email"),
+        "sender_name": s.get("sender_name"),
     }
 
 
