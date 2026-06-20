@@ -887,33 +887,86 @@ async def admin_bookings(user=Depends(require_admin)):
     return bks
 
 
-# ---------- Chatbot (Gemini 3 Flash) ----------
-SYSTEM_PROMPT = (
-    "You are ChronoBot, the friendly AI helper for ChronoBook, a Calendly-style meeting scheduler. "
-    "Help users with: signing up, logging in, creating meeting types, setting availability, sharing booking links, "
-    "and troubleshooting booking issues. Keep answers concise (1-3 short paragraphs), use plain language, "
-    "and use bullet points for steps."
+# ---------- Chatbot (predefined FAQ) ----------
+FAQ_ENTRIES = [
+    {
+        "keywords": ["what is", "chronobook", "about"],
+        "answer": (
+            "ChronoBook is a meeting scheduler — like Calendly. You set your availability, create meeting types, "
+            "share your booking page, and invitees pick a time that works. No more back-and-forth emails."
+        ),
+    },
+    {
+        "keywords": ["sign up", "signup", "register", "create account"],
+        "answer": (
+            "Click Get started free on the homepage or go to /register. Enter your name, email, and password. "
+            "After signing up you'll land on your dashboard where you can set up meeting types and availability."
+        ),
+    },
+    {
+        "keywords": ["meeting type", "meeting types"],
+        "answer": (
+            "Go to Dashboard → Meeting Types tab. Enter a title (e.g. \"30 min call\"), pick a duration, and click Add. "
+            "You can create multiple types with different lengths."
+        ),
+    },
+    {
+        "keywords": ["availability", "available", "hours", "schedule"],
+        "answer": (
+            "Open Dashboard → Availability tab. Toggle the days you're free, set start/end times for each day, "
+            "and choose your timezone. Available slots are calculated automatically from these rules."
+        ),
+    },
+    {
+        "keywords": ["share", "booking link", "public page", "link"],
+        "answer": (
+            "Your public page is at /u/your-username (shown on the Dashboard Overview tab). Click Copy link and share it "
+            "via email, social media, or your website. Invitees book directly from that page."
+        ),
+    },
+    {
+        "keywords": ["book a meeting", "book meeting", "how to book", "invitee"],
+        "answer": (
+            "They open your /u/username page, pick a meeting type, choose an available date and time slot, "
+            "enter their name and email, and confirm. Both of you receive a confirmation with meeting details."
+        ),
+    },
+    {
+        "keywords": ["cancel", "reschedule"],
+        "answer": (
+            "Yes. Invitees can cancel via the link in their confirmation email. Hosts can view bookings on the Dashboard "
+            "and reschedule confirmed bookings to a new available slot."
+        ),
+    },
+    {
+        "keywords": ["admin", "administrator"],
+        "answer": (
+            "Admin accounts can access /admin to see platform-wide stats — total users, bookings, and recent activity. "
+            "Regular users use /dashboard for their own meetings and settings."
+        ),
+    },
+]
+
+DEFAULT_FAQ_REPLY = (
+    "Pick a topic and I'll help: signup, meeting types, availability, sharing your booking link, "
+    "how invitees book, cancel/reschedule, or the admin dashboard."
 )
+
+
+def faq_reply(message: str) -> str:
+    lower = message.lower().strip()
+    for entry in FAQ_ENTRIES:
+        if any(kw in lower for kw in entry["keywords"]):
+            return entry["answer"]
+    return DEFAULT_FAQ_REPLY
 
 
 @api.post("/chat/stream")
 async def chat_stream(req: ChatReq):
     async def event_gen():
         try:
-            chat = LlmChat(
-                api_key=EMERGENT_LLM_KEY,
-                session_id=req.session_id,
-                system_message=SYSTEM_PROMPT,
-            ).with_model("gemini", "gemini-3-flash-preview")
-            full_text = ""
-            async for ev in chat.stream_message(UserMessage(text=req.message)):
-                if isinstance(ev, TextDelta):
-                    full_text += ev.content
-                    yield f"data: {ev.content}\n\n".encode("utf-8").replace(b"\n\n", b"\n\n")
-                    # actual format
-                elif isinstance(ev, StreamDone):
-                    break
-            # save
+            full_text = faq_reply(req.message)
+            yield f"data: {full_text}\n\n".encode()
             await db.chat_messages.insert_one({
                 "session_id": req.session_id,
                 "user_message": req.message,
@@ -934,36 +987,15 @@ async def chat_stream(req: ChatReq):
 
 @api.post("/chat")
 async def chat_simple(req: ChatReq):
-    """Non-streaming chat endpoint (simpler for the frontend)."""
-    if not HAS_LLM or not EMERGENT_LLM_KEY:
-        return {
-            "reply": (
-                "ChronoBot is offline in local dev. "
-                "Sign up, create meeting types, set availability, and share your /u/username link to get started."
-            )
-        }
-    try:
-        chat = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id=req.session_id,
-            system_message=SYSTEM_PROMPT,
-        ).with_model("gemini", "gemini-3-flash-preview")
-        full_text = ""
-        async for ev in chat.stream_message(UserMessage(text=req.message)):
-            if isinstance(ev, TextDelta):
-                full_text += ev.content
-            elif isinstance(ev, StreamDone):
-                break
-        await db.chat_messages.insert_one({
-            "session_id": req.session_id,
-            "user_message": req.message,
-            "bot_message": full_text,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
-        return {"reply": full_text}
-    except Exception as e:
-        logger.exception("chat error")
-        raise HTTPException(status_code=500, detail=f"Chat error: {e}")
+    """Non-streaming chat endpoint with predefined FAQ answers."""
+    reply = faq_reply(req.message)
+    await db.chat_messages.insert_one({
+        "session_id": req.session_id,
+        "user_message": req.message,
+        "bot_message": reply,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"reply": reply}
 
 
 # ---------- Startup ----------

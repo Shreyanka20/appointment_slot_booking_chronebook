@@ -1,43 +1,80 @@
 import React, { useRef, useState, useEffect } from "react";
-import { api } from "@/lib/api";
-import { MessageSquare, X, Send } from "lucide-react";
+import { MessageSquare, X } from "lucide-react";
 
-function genSessionId() {
-  let s = localStorage.getItem("chrono_chat_session");
-  if (!s) {
-    s = "sess_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
-    localStorage.setItem("chrono_chat_session", s);
-  }
-  return s;
-}
+const FAQ = [
+  {
+    id: "what-is",
+    question: "What is ChronoBook?",
+    answer:
+      "ChronoBook is a meeting scheduler — like Calendly. You set your availability, create meeting types, share your booking page, and invitees pick a time that works. No more back-and-forth emails.",
+  },
+  {
+    id: "signup",
+    question: "How do I sign up?",
+    answer:
+      "Click Get started free on the homepage or go to /register. Enter your name, email, and password. After signing up you'll land on your dashboard where you can set up meeting types and availability.",
+  },
+  {
+    id: "meeting-type",
+    question: "How do I create a meeting type?",
+    answer:
+      "Go to Dashboard → Meeting Types tab. Enter a title (e.g. \"30 min call\"), pick a duration, and click Add. You can create multiple types with different lengths.",
+  },
+  {
+    id: "availability",
+    question: "How do I set my availability?",
+    answer:
+      "Open Dashboard → Availability tab. Toggle the days you're free, set start/end times for each day, and choose your timezone. Available slots are calculated automatically from these rules.",
+  },
+  {
+    id: "share-link",
+    question: "How do I share my booking link?",
+    answer:
+      "Your public page is at /u/your-username (shown on the Dashboard Overview tab). Click Copy link and share it via email, social media, or your website. Invitees book directly from that page.",
+  },
+  {
+    id: "book-meeting",
+    question: "How does someone book a meeting?",
+    answer:
+      "They open your /u/username page, pick a meeting type, choose an available date and time slot, enter their name and email, and confirm. Both of you receive a confirmation with meeting details.",
+  },
+  {
+    id: "cancel",
+    question: "Can I cancel or reschedule a booking?",
+    answer:
+      "Yes. Invitees can cancel via the link in their confirmation email. Hosts can view bookings on the Dashboard and reschedule confirmed bookings to a new available slot.",
+  },
+  {
+    id: "admin",
+    question: "What is the admin dashboard?",
+    answer:
+      "Admin accounts can access /admin to see platform-wide stats — total users, bookings, and recent activity. Regular users use /dashboard for their own meetings and settings.",
+  },
+];
 
 export default function ChatbotWidget() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([
-    { role: "bot", text: "Hi! I'm ChronoBot — ask me anything about ChronoBook (signup, booking, availability, admin)." },
+    {
+      role: "bot",
+      text: "Hi! I'm ChronoBot. Pick a question below and I'll help you get started with ChronoBook.",
+    },
   ]);
-  const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
-  const sessionId = useRef(genSessionId());
+  const [answered, setAnswered] = useState(new Set());
   const scrollRef = useRef(null);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, open]);
 
-  const send = async (e) => {
-    e?.preventDefault?.();
-    const text = input.trim();
-    if (!text || busy) return;
-    setInput("");
-    setMessages((m) => [...m, { role: "user", text }]);
-    setBusy(true);
-    try {
-      const r = await api.post("/chat", { session_id: sessionId.current, message: text });
-      setMessages((m) => [...m, { role: "bot", text: r.data.reply || "…" }]);
-    } catch (e) {
-      setMessages((m) => [...m, { role: "bot", text: "Sorry, I hit an error. Try again?" }]);
-    } finally { setBusy(false); }
+  const askQuestion = (faq) => {
+    if (answered.has(faq.id)) return;
+    setAnswered((prev) => new Set(prev).add(faq.id));
+    setMessages((m) => [
+      ...m,
+      { role: "user", text: faq.question },
+      { role: "bot", text: faq.answer },
+    ]);
   };
 
   return (
@@ -59,7 +96,7 @@ export default function ChatbotWidget() {
           <div className="bg-gradient-to-r from-orange-600 to-amber-600 text-white px-4 py-3.5 flex items-center justify-between">
             <div>
               <div className="font-display font-bold tracking-tight">ChronoBot</div>
-              <div className="text-[11px] text-orange-200 font-medium">AI assistant · online</div>
+              <div className="text-[11px] text-orange-200 font-medium">Help assistant · online</div>
             </div>
             <button onClick={() => setOpen(false)} aria-label="Close" className="p-1.5 rounded-lg hover:bg-white/20 transition-colors">
               <X size={18} />
@@ -79,25 +116,31 @@ export default function ChatbotWidget() {
                 {m.text}
               </div>
             ))}
-            {busy && <div className="text-xs text-stone-400 font-medium">Typing…</div>}
           </div>
-          <form onSubmit={send} className="border-t border-stone-100 p-3 flex gap-2 bg-white">
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask me anything…"
-              className="flex-1 border border-stone-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/15"
-              data-testid="chatbot-input"
-            />
-            <button
-              type="submit"
-              disabled={busy || !input.trim()}
-              className="w-10 h-10 rounded-xl bg-orange-600 text-white flex items-center justify-center hover:bg-orange-700 disabled:opacity-40 transition-colors"
-              data-testid="chatbot-send"
-            >
-              <Send size={16} />
-            </button>
-          </form>
+          <div className="border-t border-stone-100 p-3 bg-white">
+            <p className="text-[11px] font-medium text-stone-400 mb-2 px-0.5">Choose a question</p>
+            <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
+              {FAQ.map((faq) => {
+                const done = answered.has(faq.id);
+                return (
+                <button
+                  key={faq.id}
+                  type="button"
+                  onClick={() => askQuestion(faq)}
+                  disabled={done}
+                  data-testid={`chatbot-faq-${faq.id}`}
+                  className={`text-left text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${
+                    done
+                      ? "border-stone-200 bg-stone-100 text-stone-400 cursor-default"
+                      : "border-orange-200 bg-orange-50 text-orange-800 hover:bg-orange-100 hover:border-orange-300"
+                  }`}
+                >
+                  {faq.question}
+                </button>
+              );
+              })}
+            </div>
+          </div>
         </div>
       )}
     </>
