@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -11,20 +11,20 @@ export default function NotificationBell() {
   const [unread, setUnread] = useState(0);
   const ref = useRef(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     if (!user) return;
     try {
       const r = await api.get("/notifications");
       setItems(r.data.notifications || []);
       setUnread(r.data.unread_count || 0);
     } catch {}
-  };
+  }, [user]);
 
   useEffect(() => {
     load();
     const t = setInterval(load, 60000);
     return () => clearInterval(t);
-  }, [user]);
+  }, [load]);
 
   useEffect(() => {
     const handler = (e) => {

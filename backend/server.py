@@ -74,14 +74,25 @@ def create_access_token(user_id: str, email: str) -> str:
     )
 
 
+def _use_cross_site_cookies() -> bool:
+    explicit = os.environ.get("COOKIE_CROSS_SITE", "").lower()
+    if explicit in ("1", "true", "yes"):
+        return True
+    if explicit in ("0", "false", "no"):
+        return False
+    if os.environ.get("RENDER") or FRONTEND_URL.startswith("https://"):
+        return True
+    return False
+
+
 def set_auth_cookie(response: Response, token: str):
-    is_local = FRONTEND_URL.startswith("http://localhost") or FRONTEND_URL.startswith("http://127.0.0.1")
+    cross_site = _use_cross_site_cookies()
     response.set_cookie(
         key="access_token",
         value=token,
         httponly=True,
-        secure=not is_local,
-        samesite="lax" if is_local else "none",
+        secure=cross_site,
+        samesite="none" if cross_site else "lax",
         max_age=7 * 24 * 3600,
         path="/",
     )
@@ -890,15 +901,28 @@ async def shutdown():
 
 app.include_router(api)
 
-_cors_origins = [
-    o.strip()
-    for o in os.environ.get("CORS_ORIGINS", FRONTEND_URL).split(",")
-    if o.strip()
-]
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+def _build_cors_config() -> tuple[list[str], Optional[str]]:
+    origins: set[str] = set()
+    for raw in (FRONTEND_URL, os.environ.get("CORS_ORIGINS", "")):
+        for o in raw.split(","):
+            o = o.strip().rstrip("/")
+            if o:
+                origins.add(o)
+    origin_list = sorted(origins)
+    regex = None
+    allow_vercel = os.environ.get("CORS_ALLOW_VERCEL", "true").lower() in ("1", "true", "yes")
+    if allow_vercel or any(".vercel.app" in o for o in origin_list):
+        regex = r"https://[\w.-]+\.vercel\.app"
+    return origin_list, regex
+
+
+_cors_origins, _cors_origin_regex = _build_cors_config()
+_cors_kwargs: dict = {
+    "allow_origins": _cors_origins,
+    "allow_credentials": True,
+    "allow_methods": ["*"],
+    "allow_headers": ["*"],
+}
+if _cors_origin_regex:
+    _cors_kwargs["allow_origin_regex"] = _cors_origin_regex
+app.add_middleware(CORSMiddleware, **_cors_kwargs)
